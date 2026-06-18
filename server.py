@@ -228,18 +228,24 @@ class Handler(BaseHTTPRequestHandler):
         prompt = (body.get("prompt") or PROMPT).strip() or PROMPT
         num_predict = int(body.get("num_predict") or NUM_PREDICT)
 
-        # risposta in streaming NDJSON: un oggetto JSON per riga.
-        # {"type":"delta","text":...} mentre arriva, {"type":"done",...} alla fine.
+        # Risposta in streaming SSE (text/event-stream) con transfer chunked: è il
+        # formato che i proxy (es. Cloudflare) inoltrano SENZA bufferizzare, così il
+        # testo arriva dal vivo anche dietro tunnel. Ogni evento: "data: {json}\n\n".
         self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")     # niente buffering lato proxy
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Transfer-Encoding", "chunked")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-        def emit(obj):
-            self.wfile.write((json.dumps(obj) + "\n").encode())
+        def emit(obj):                                  # un evento SSE come chunk HTTP
+            data = ("data: " + json.dumps(obj) + "\n\n").encode("utf-8")
+            self.wfile.write(("%X\r\n" % len(data)).encode() + data + b"\r\n")
             self.wfile.flush()
+
+        emit({"type": "start"})   # apre subito lo stream (evita buffering/timeout iniziali)
 
         payload = {
             "model": MODEL, "prompt": prompt, "images": [image], "stream": True,
@@ -253,7 +259,7 @@ class Handler(BaseHTTPRequestHandler):
         full, guard, stopped_early, final = [], LoopGuard(), False, {}
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-                for line in r:                      # ogni riga = un chunk NDJSON di Ollama
+                for line in r:                       # ogni riga = un chunk NDJSON di Ollama
                     line = line.strip()
                     if not line:
                         continue
@@ -265,22 +271,14 @@ class Handler(BaseHTTPRequestHandler):
                     if tok:
                         full.append(tok)
                         emit({"type": "delta", "text": tok})
-                        if guard.feed(tok):         # loop -> esco e chiudo (Ollama annulla)
+                        if guard.feed(tok):          # loop -> esco e chiudo (Ollama annulla)
                             stopped_early = True
                             break
                     if obj.get("done"):
                         final = obj
                         break
-        except urllib.error.URLError as e:
-            return emit({"type": "error", "error": f"Ollama non raggiungibile su {OLLAMA_URL}: {e}"})
-        except (BrokenPipeError, ConnectionResetError):
-            return                                  # il client ha chiuso la connessione
-        except Exception as e:
-            return emit({"type": "error", "error": f"{type(e).__name__}: {e}"})
-
-        raw_text = "".join(full)
-        cleaned, truncated = clean_markdown(raw_text)
-        try:
+            raw_text = "".join(full)
+            cleaned, truncated = clean_markdown(raw_text)
             emit({
                 "type": "done",
                 "markdown": cleaned,
@@ -291,8 +289,24 @@ class Handler(BaseHTTPRequestHandler):
                 "eval_count": final.get("eval_count"),
                 "duration_ms": (final.get("total_duration") or 0) // 1_000_000,
             })
+        except urllib.error.URLError as e:
+            try:
+                emit({"type": "error", "error": f"Ollama non raggiungibile su {OLLAMA_URL}: {e}"})
+            except Exception:
+                pass
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            return                                   # il client ha chiuso: stop
+        except Exception as e:
+            try:
+                emit({"type": "error", "error": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass
+        finally:
+            try:
+                self.wfile.write(b"0\r\n\r\n")        # chiude lo stream chunked
+                self.wfile.flush()
+            except Exception:
+                pass
 
     def do_OPTIONS(self):
         self.send_response(204)

@@ -101,18 +101,20 @@ function makeThumb(srcCanvas) {
   return c.toDataURL("image/jpeg", 0.6);
 }
 
-// Immagine da mandare all'OCR: ridotta se supera il tetto (prefill più veloce).
-// Se è già entro il limite riusa il dataURL pieno (niente copia in memoria).
-function makeOcrDataUrl(srcCanvas, fullDataUrl) {
+// Immagine da mandare all'OCR: JPEG (upload molto più leggero del PNG, resa OCR sul
+// testo equivalente) e ridotta se supera il tetto di larghezza. La visualizzazione
+// a sinistra resta PNG nitido: questo riguarda solo il dato spedito al backend.
+const OCR_JPEG_QUALITY = 0.92;
+function makeOcrDataUrl(srcCanvas) {
   const cap = state.ocrMaxWidth || 2000;
   const long = Math.max(srcCanvas.width, srcCanvas.height);
-  if (long <= cap) return fullDataUrl;
+  if (long <= cap) return srcCanvas.toDataURL("image/jpeg", OCR_JPEG_QUALITY);
   const k = cap / long;
   const c = document.createElement("canvas");
   c.width = Math.round(srcCanvas.width * k);
   c.height = Math.round(srcCanvas.height * k);
   c.getContext("2d").drawImage(srcCanvas, 0, 0, c.width, c.height);
-  return c.toDataURL("image/png");
+  return c.toDataURL("image/jpeg", OCR_JPEG_QUALITY);
 }
 
 async function handleFiles(fileList) {
@@ -161,7 +163,7 @@ async function loadPdf(file) {
     const dataUrl = canvas.toDataURL("image/png");
     state.pages.push({
       kind: "pdf", name: file.name + " · p" + i,
-      dataUrl, ocrDataUrl: makeOcrDataUrl(canvas, dataUrl), thumb: makeThumb(canvas),
+      dataUrl, ocrDataUrl: makeOcrDataUrl(canvas), thumb: makeThumb(canvas),
       status: "idle", markdown: "", live: "", error: "", meta: null,
     });
     if (state.current === -1) { state.current = 0; showPage(); enableDocButtons(true); }
@@ -179,7 +181,7 @@ async function loadImage(file) {
   canvas.getContext("2d").drawImage(img, 0, 0);
   state.pages.push({
     kind: "img", name: file.name, dataUrl,
-    ocrDataUrl: makeOcrDataUrl(canvas, dataUrl), thumb: makeThumb(canvas),
+    ocrDataUrl: makeOcrDataUrl(canvas), thumb: makeThumb(canvas),
     status: "idle", markdown: "", live: "", error: "", meta: null,
   });
   if (state.current === -1) { state.current = 0; showPage(); enableDocButtons(true); }
@@ -308,11 +310,15 @@ async function ocrPage(idx) {
       const { value, done } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {           // una riga NDJSON per volta
-        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        if (!line.trim()) continue;
-        let msg; try { msg = JSON.parse(line); } catch { continue; }
+      let sep;
+      while ((sep = buf.indexOf("\n\n")) >= 0) {        // un evento SSE per volta
+        const evt = buf.slice(0, sep); buf = buf.slice(sep + 2);
+        const json = evt.split("\n")
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.replace(/^data:\s?/, ""))
+          .join("");
+        if (!json) continue;
+        let msg; try { msg = JSON.parse(json); } catch { continue; }
         if (msg.type === "delta") {
           p.live += msg.text;
           if (idx === state.current) {
