@@ -157,8 +157,46 @@ docker run -d --name ocr-studio -p 8765:8765 \
   ocr-studio
 ```
 
-Su **TrueNAS SCALE** puoi usarlo come *Custom App* (immagine `ocr-studio`, porta 8765,
-stesse env), puntando `OCR_OLLAMA_URL` all'indirizzo interno di Ollama.
+### TrueNAS SCALE (Custom App)
+
+TrueNAS SCALE (Electric Eel 24.10+ / 25.x) usa **Docker Compose** per le Custom App.
+Siccome l'app è solo Python stdlib + file statici, il modo più semplice è **montare il
+codice** e usare l'immagine `python` ufficiale — niente build, niente registry (file pronto:
+[`truenas-custom-app.yml`](truenas-custom-app.yml)):
+
+1. Crea un dataset, es. `apps/ocr-studio`, e mettici dentro `server.py` e la cartella
+   `static/` (via condivisione SMB, oppure `git clone` del repo nel dataset).
+2. **Apps → Discover Apps → Custom App → Install via YAML**, incolla:
+
+```yaml
+services:
+  ocr-studio:
+    image: python:3.12-slim
+    container_name: ocr-studio
+    command: python server.py
+    working_dir: /app
+    volumes:
+      - /mnt/POOL/apps/ocr-studio:/app:ro       # <-- il tuo dataset (sostituisci POOL)
+    ports:
+      - "8765:8765"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      OCR_OLLAMA_URL: "http://192.168.1.107:11434"   # Ollama sullo stesso TrueNAS
+      OCR_MODEL: "glm-ocr:latest"
+      OCR_NUM_PREDICT: "4096"
+    restart: unless-stopped
+```
+
+3. Apri `http://<ip-truenas>:8765`.
+
+Note:
+- Sostituisci `/mnt/POOL/apps/ocr-studio` col percorso reale del dataset.
+- `OCR_OLLAMA_URL`: se Ollama gira sullo stesso TrueNAS va bene l'IP della LAN
+  (`192.168.1.107:11434`); l'importante è che Ollama ascolti su `0.0.0.0`.
+- **Aggiornare l'app**: aggiorni i file nel dataset e riavvii la app (l'immagine python
+  resta la stessa).
+- In alternativa, per un'immagine immutabile, pubblicala su un registry (es. GHCR via
+  GitHub Actions) e usa `image: ghcr.io/<utente>/ocr-studio:latest`.
 
 ## Privacy e dati
 

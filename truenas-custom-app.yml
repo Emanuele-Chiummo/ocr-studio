@@ -1,0 +1,30 @@
+# TrueNAS SCALE — Custom App (Apps -> Discover Apps -> Custom App -> Install via YAML)
+#
+# Approccio "monta il codice": nessuna build, nessun registry. Usa l'immagine python
+# ufficiale e monta il codice dell'app da un dataset.
+#
+# PRIMA DI INSTALLARE:
+#   1) crea un dataset, es. apps/ocr-studio
+#   2) copiaci dentro server.py e la cartella static/ (via SMB o `git clone`)
+#   3) sostituisci /mnt/POOL/apps/ocr-studio col percorso reale del dataset
+#   4) verifica che Ollama ascolti su 0.0.0.0 e che OCR_OLLAMA_URL sia corretto
+#
+# Poi apri:  http://<ip-truenas>:8765
+
+services:
+  ocr-studio:
+    image: python:3.12-slim
+    container_name: ocr-studio
+    command: python server.py
+    working_dir: /app
+    volumes:
+      - /mnt/POOL/apps/ocr-studio:/app:ro        # <-- SOSTITUISCI POOL col tuo pool
+    ports:
+      - "8765:8765"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      OCR_OLLAMA_URL: "http://192.168.1.107:11434"   # Ollama sullo stesso TrueNAS
+      OCR_MODEL: "glm-ocr:latest"
+      OCR_NUM_PREDICT: "4096"
+      OCR_KEEP_ALIVE: "30m"
+    restart: unless-stopped
