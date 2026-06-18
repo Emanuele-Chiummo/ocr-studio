@@ -1,0 +1,22 @@
+# TrueNAS SCALE — Custom App con immagine pronta da GHCR (niente codice da montare).
+#
+# PREREQUISITO: il workflow GitHub Actions (.github/workflows/docker.yml) ha pubblicato
+# l'immagine su ghcr.io/emanuele-chiummo/ocr-studio, e il pacchetto è PUBBLICO
+# (oppure hai configurato le credenziali del registry su TrueNAS).
+#
+# Poi: Apps -> Discover Apps -> Custom App -> Install via YAML, incolla questo.
+# Apri:  http://<ip-truenas>:8765
+
+services:
+  ocr-studio:
+    image: ghcr.io/emanuele-chiummo/ocr-studio:latest
+    container_name: ocr-studio
+    ports:
+      - "8765:8765"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      OCR_OLLAMA_URL: "http://192.168.1.107:11434"   # Ollama sullo stesso TrueNAS
+      OCR_MODEL: "glm-ocr:latest"
+      OCR_NUM_PREDICT: "4096"
+      OCR_KEEP_ALIVE: "30m"
+    restart: unless-stopped

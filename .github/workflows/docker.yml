@@ -1,0 +1,32 @@
+name: docker
+
+# Builda l'immagine dal Dockerfile e la pubblica su GHCR a ogni push su main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/emanuele-chiummo/ocr-studio:latest
+            ghcr.io/emanuele-chiummo/ocr-studio:${{ github.sha }}

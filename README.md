@@ -195,8 +195,36 @@ Note:
   (`192.168.1.107:11434`); l'importante è che Ollama ascolti su `0.0.0.0`.
 - **Aggiornare l'app**: aggiorni i file nel dataset e riavvii la app (l'immagine python
   resta la stessa).
-- In alternativa, per un'immagine immutabile, pubblicala su un registry (es. GHCR via
-  GitHub Actions) e usa `image: ghcr.io/<utente>/ocr-studio:latest`.
+### Variante: immagine pronta da GHCR (consigliata)
+
+Il repo include un workflow GitHub Actions
+([`.github/workflows/docker.yml`](.github/workflows/docker.yml)) che a ogni push builda
+l'immagine dal `Dockerfile` e la pubblica su **GHCR** come
+`ghcr.io/emanuele-chiummo/ocr-studio:latest`. Così su TrueNAS **non monti il codice**:
+pulli e basta (file pronto: [`truenas-custom-app-ghcr.yml`](truenas-custom-app-ghcr.yml)).
+
+1. Dopo il primo run del workflow, rendi **pubblico il pacchetto immagine** (il repo resta
+   privato): GitHub → tuo profilo → *Packages* → `ocr-studio` → *Package settings* →
+   *Change visibility* → Public. L'immagine non contiene segreti. *(In alternativa tienilo
+   privato e configura le credenziali del registry su TrueNAS.)*
+2. Custom App → Install via YAML:
+
+```yaml
+services:
+  ocr-studio:
+    image: ghcr.io/emanuele-chiummo/ocr-studio:latest
+    container_name: ocr-studio
+    ports:
+      - "8765:8765"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      OCR_OLLAMA_URL: "http://192.168.1.107:11434"
+      OCR_MODEL: "glm-ocr:latest"
+      OCR_NUM_PREDICT: "4096"
+    restart: unless-stopped
+```
+
+Aggiornare = nuova push → il workflow ripubblica `:latest`; su TrueNAS basta ri-pullare e riavviare.
 
 ## Privacy e dati
 
