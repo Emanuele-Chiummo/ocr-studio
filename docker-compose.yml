@@ -1,0 +1,18 @@
+services:
+  ocr-studio:
+    build: .
+    image: ocr-studio
+    container_name: ocr-studio
+    ports:
+      - "8765:8765"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      # Ollama si assume in esecuzione sull'HOST (non in questo container).
+      # host.docker.internal punta alla macchina host. Sostituiscilo con l'IP del tuo
+      # server Ollama se è altrove (es. http://192.168.1.107:11434).
+      # NB: l'Ollama dell'host deve ascoltare su 0.0.0.0 (OLLAMA_HOST=0.0.0.0).
+      OCR_OLLAMA_URL: "http://host.docker.internal:11434"
+      OCR_MODEL: "glm-ocr:latest"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # necessario su Linux (Docker Desktop lo ha già)
+    restart: unless-stopped

@@ -1,0 +1,10 @@
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+.DS_Store
+README.md
+start.command
+smoke_test.py
+stream_test.py
+static/_*

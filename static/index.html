@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR Studio — PDF/immagini → Markdown (GLM-OCR)</title>
+<link rel="stylesheet" href="/styles.css">
+<!-- KaTeX per le formule -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<!-- highlight.js per i blocchi di codice -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◧</span>
+    <div>
+      <div class="title">OCR Studio</div>
+      <div class="subtitle">PDF &amp; immagini → Markdown · GLM-OCR locale</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="health" class="pill pill-wait" title="Stato Ollama">● Ollama…</span>
+    <button id="btnSettings" class="btn ghost" title="Impostazioni">⚙ Impostazioni</button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <label class="btn primary">
+    <input id="fileInput" type="file" accept="application/pdf,image/*" multiple hidden>
+    ＋ Carica PDF o immagini
+  </label>
+  <span id="fileName" class="muted">nessun file</span>
+  <span class="sep"></span>
+  <button id="btnRunAll" class="btn" disabled>▶ Converti tutto</button>
+  <button id="btnStop" class="btn" disabled>■ Stop</button>
+  <span id="progress" class="muted"></span>
+  <span class="spacer"></span>
+  <button id="btnCopy" class="btn ghost" disabled>⧉ Copia pagina</button>
+  <button id="btnDownloadPage" class="btn ghost" disabled>⭳ .md pagina</button>
+  <button id="btnDownloadAll" class="btn ghost" disabled>⭳ .md completo</button>
+</div>
+
+<div id="progressbar" class="progressbar hidden"><div id="progressFill" class="fill"></div></div>
+
+<main class="split" id="split">
+  <aside class="filmstrip" id="filmstrip"></aside>
+
+  <section class="pane left">
+    <div class="pane-head">
+      <div class="pager">
+        <button id="prevPage" class="btn icon" title="Pagina precedente">‹</button>
+        <span id="pageLabel">— / —</span>
+        <button id="nextPage" class="btn icon" title="Pagina successiva">›</button>
+      </div>
+      <div class="zoom">
+        <button id="zoomOut" class="btn icon" title="Riduci">−</button>
+        <span id="zoomLabel">100%</span>
+        <button id="zoomIn" class="btn icon" title="Ingrandisci">＋</button>
+      </div>
+      <button id="btnRunPage" class="btn small" disabled title="Esegui/rielabora OCR di questa pagina">↻ OCR pagina</button>
+    </div>
+    <div class="doc-view" id="docView">
+      <div class="dropzone" id="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">⇪</div>
+          <div class="dz-title">Trascina qui un PDF o delle immagini</div>
+          <div class="dz-sub">oppure usa “Carica PDF o immagini”. Le tabelle, le figure e le formule vengono riconosciute.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider" id="divider" title="Trascina per ridimensionare"></div>
+
+  <section class="pane right">
+    <div class="pane-head">
+      <div class="tabs">
+        <button class="tab active" data-tab="preview">Anteprima</button>
+        <button class="tab" data-tab="raw">Markdown</button>
+      </div>
+      <div id="pageMeta" class="page-meta muted"></div>
+    </div>
+    <div class="result-view">
+      <div id="preview" class="markdown-body"></div>
+      <textarea id="raw" class="raw" spellcheck="false" hidden></textarea>
+    </div>
+  </section>
+</main>
+
+<!-- Pannello impostazioni -->
+<div id="settingsOverlay" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Impostazioni</h3>
+      <button id="closeSettings" class="btn icon">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span>Prompt inviato al modello</span>
+        <textarea id="setPrompt" rows="2"></textarea>
+        <small>Default <code>OCR</code>. Un prompt vuoto non genera nulla. Prompt più “verbosi” tendono a far degenerare il modellino 1.1B.</small>
+      </label>
+      <label class="field">
+        <span>num_predict (tetto token per pagina)</span>
+        <input id="setNumPredict" type="number" min="256" max="32768" step="256">
+        <small>Limita i loop. ~4096 copre una pagina densa.</small>
+      </label>
+      <label class="field">
+        <span>Risoluzione rendering PDF (scala)</span>
+        <input id="setScale" type="range" min="1" max="4" step="0.25">
+        <small><span id="scaleLabel">2.0</span>× · più alta = OCR migliore ma più lento/pesante (≈ scala×72 dpi).</small>
+      </label>
+      <label class="field">
+        <span>Larghezza max immagine OCR (px)</span>
+        <input id="setOcrMaxWidth" type="number" min="640" max="4000" step="100">
+        <small>Oltre questa soglia l'immagine viene ridotta prima dell'OCR (prefill più veloce). Troppo bassa peggiora la lettura e può causare loop.</small>
+      </label>
+      <div class="field">
+        <span>Endpoint</span>
+        <small id="endpointInfo" class="mono"></small>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button id="saveSettings" class="btn primary">Salva</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Librerie (CDN) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
